@@ -31,7 +31,7 @@ https://github.com/eimax9668/TypeSpark/release
 Windows版は `.exe` インストーラとして配布しています。  
 以下の GitHub Releases ページからダウンロードしてください。
 
-👉 https://github.com/eimax9668/TypeSpark/releases
+https://github.com/eimax9668/TypeSpark/releases
 
 ### Windows のセキュリティ警告について
 
