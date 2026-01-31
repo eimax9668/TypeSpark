@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TypeSpark</title>
+  <meta charset="UTF-8">
+</head>
+<body>
+    <style>
+        body { margin: 0; overflow: hidden; background: transparent; }
+        canvas { display: block; }
+      </style>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    // --- 設定管理 ---
+    let currentSettings = {
+      volume: 50,       // 0 - 100
+      colorType: 'random', // 'random', 'red', 'blue', 'neon'
+      soundType: 'synth', // 'synth', 'mech'
+      gravity: false,
+      useMousePos: false,
+      shapeType: 'circle',
+      particleSize: 5,
+      particleLife: 50,
+      showCombo: true,
+      scatterIntensity: 5,
+      enableResurgence: false,
+      bounce: false,
+      showWPM: false
+    };
+
+    ipcRenderer.on('update-settings', (event, newSettings) => {
+      currentSettings = { ...currentSettings, ...newSettings };
+    });
+
+    // 起動時に保存された設定を取得して適用
+    ipcRenderer.invoke('get-settings').then(settings => {
+      currentSettings = { ...currentSettings, ...settings };
+    });
+
+    // --- キャンバスのセットアップ ---
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // --- パーティクルシステム ---
+    const particles = [];
+    const MAX_PARTICLES = 400; // 画面上の最大パーティクル数（負荷対策）
+
+    // 画面揺れの強度管理
+    let shakeIntensity = 0;
+
+    // 特殊キー連打制限用の履歴
+    const specialKeyHistory = [];
+    const SPECIAL_KEY_LIMIT = 2; // 短期間に許容する回数
+    const SPECIAL_KEY_WINDOW = 800; // 制限判定期間 (ms)
+
+    // コンボカウンター管理
+    let comboCount = 0;
+    let lastKeyTime = 0;
+    const COMBO_TIMEOUT = 1000; // コンボが切れるまでの時間 (ms)
+    let comboScale = 1.0; // コンボ表示の拡大アニメーション用
+    
+    // WPM計算用履歴
+    const wpmHistory = [];
+
+    // キーコードから文字への簡易マッピング (uiohook-napiのコードに対応)
+    const keyMap = {
+      // Row 1
+      16: 'Q', 17: 'W', 18: 'E', 19: 'R', 20: 'T', 21: 'Y', 22: 'U', 23: 'I', 24: 'O', 25: 'P',
+      // Row 2
+      30: 'A', 31: 'S', 32: 'D', 33: 'F', 34: 'G', 35: 'H', 36: 'J', 37: 'K', 38: 'L',
+      // Row 3
+      44: 'Z', 45: 'X', 46: 'C', 47: 'V', 48: 'B', 49: 'N', 50: 'M',
+      // Numbers
+      2: '1', 3: '2', 4: '3', 5: '4', 6: '5', 7: '6', 8: '7', 9: '8', 10: '9', 11: '0',
+      // Others
+      28: 'Enter', 57: 'Space', 14: 'Bksp', 1: 'Esc', 15: 'Tab', 58: 'Caps', 42: 'Shift', 29: 'Ctrl',
+      56: 'Alt', 3675: 'Win', 3676: 'Menu', 57416: 'Up', 57424: 'Down', 57419: 'Left', 57421: 'Right',
+      // Symbols
+      12: '-', 13: '=', 26: '[', 27: ']', 43: '\\', 39: ';', 40: "'", 51: ',', 52: '.', 53: '/'
+    };
+
+    class Particle {
+      constructor(x, y, char, isSpecial = false, combo = 0) {
+        this.x = x;
+        this.y = y;
+        // ランダムな方向に飛び散る
+        const angle = Math.random() * Math.PI * 2;
+        // コンボ数に応じて速度アップ (最大2.5倍)
+        const comboSpeedMult = 1 + Math.min(combo * 0.02, 1.5);
+        // 散らばり強度設定 (1〜10) を反映。5を基準(1.0倍)とする
+        const intensityMult = (currentSettings.scatterIntensity || 5) / 5;
+
+        // 特別なキーなら爆発力を上げる
+        const speed = (isSpecial ? (Math.random() * 4 + 3) : (Math.random() * 3 + 2)) * comboSpeedMult * intensityMult;
+        
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.life = 1.0; // 寿命 (1.0 -> 0.0)
+        this.char = char; // 表示する文字
+        
+        // 回転の初期値と速度
+        this.rotation = Math.random() * Math.PI * 2;
+        this.rotationSpeed = (Math.random() - 0.5) * 0.3;
+        
+        // 設定に応じた色決定ロジック
+        let hue;
+        switch (currentSettings.colorType) {
+          case 'red':
+            hue = 330 + Math.random() * 60; // 赤〜オレンジ系
+            break;
+          case 'blue':
+            hue = 180 + Math.random() * 80; // 青〜水色〜紫系
+            break;
+          case 'neon':
+            // 鮮やかな色（ピンク、シアン、ライム）からランダム
+            const neons = [300, 180, 120, 60]; 
+            hue = neons[Math.floor(Math.random() * neons.length)] + (Math.random() * 20 - 10);
+            break;
+          default: // random
+            hue = Math.random() * 360;
+        }
+        this.color = `hsl(${hue}, 100%, 50%)`;
+        
+        // コンボ数に応じてサイズも少し大きく (最大1.5倍)
+        const comboSizeMult = 1 + Math.min(combo * 0.01, 0.5);
+        // 設定サイズを基準に、50%〜150%の範囲でランダム化
+        this.size = currentSettings.particleSize * (0.5 + Math.random()) * comboSizeMult;
+        
+        if (isSpecial) {
+          this.size *= 1.5; // 少し大きく
+          this.life = 1.2;  // 少し長生き
+        }
+      }
+
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        
+        // 重力が有効な場合、下方向への加速を加える
+        if (currentSettings.gravity) {
+          this.vy += 0.3; 
+        }
+
+        // 跳ね返り処理 (Bounce)
+        if (currentSettings.bounce) {
+          // 左右の壁
+          if (this.x - this.size < 0) {
+            this.x = this.size; // めり込み防止
+            this.vx *= -0.8;    // 反転して少し減速
+          } else if (this.x + this.size > canvas.width) {
+            this.x = canvas.width - this.size;
+            this.vx *= -0.8;
+          }
+          // 上下の壁
+          if (this.y - this.size < 0) {
+            this.y = this.size;
+            this.vy *= -0.8;
+          } else if (this.y + this.size > canvas.height) {
+            this.y = canvas.height - this.size;
+            this.vy *= -0.8; // 床でのバウンド表現にもなる
+          }
+        }
+
+        // 設定された寿命に基づいて減衰 (Life値が大きいほど減りが遅い)
+        this.life -= 1.0 / (currentSettings.particleLife || 50);
+        this.size *= 0.95; // 徐々に小さく
+        
+        // 回転させる
+        this.rotation += this.rotationSpeed;
+      }
+
+      draw(ctx) {
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+
+        // 形状ごとの描画
+        if (currentSettings.shapeType === 'square') {
+          ctx.save();
+          ctx.translate(this.x, this.y);
+          ctx.rotate(this.rotation);
+          ctx.fillRect(-this.size, -this.size, this.size * 2, this.size * 2);
+          ctx.restore();
+        } else if (currentSettings.shapeType === 'star') {
+          // 星型の描画
+          ctx.save();
+          ctx.translate(this.x, this.y);
+          ctx.rotate(this.rotation);
+          ctx.beginPath();
+          const spikes = 5;
+          const outerRadius = this.size * 1.5;
+          const innerRadius = this.size * 0.7;
+          for (let i = 0; i < spikes * 2; i++) {
+            const r = (i % 2 === 0) ? outerRadius : innerRadius;
+            const angle = (Math.PI / spikes) * i;
+            const dx = Math.cos(angle) * r;
+            const dy = Math.sin(angle) * r;
+            ctx.lineTo(dx, dy);
+          }
+          ctx.fill();
+          ctx.restore();
+        } else if (currentSettings.shapeType === 'heart') {
+          // ハート型の描画
+          ctx.save();
+          ctx.translate(this.x, this.y);
+          ctx.rotate(this.rotation);
+          ctx.beginPath();
+          const s = this.size;
+          // ハートのパス定義
+          ctx.moveTo(0, -s * 0.5);
+          ctx.bezierCurveTo(s * 0.5, -s, s, -s * 0.5, 0, s * 0.8);
+          ctx.bezierCurveTo(-s, -s * 0.5, -s * 0.5, -s, 0, -s * 0.5);
+          ctx.fill();
+          ctx.restore();
+        } else if (currentSettings.shapeType === 'char') {
+          // 文字の描画
+          ctx.save();
+          ctx.translate(this.x, this.y);
+          ctx.rotate(this.rotation);
+          ctx.font = `bold ${Math.round(Math.max(12, this.size * 3))}px monospace`; // フォントサイズを整数にして描画負荷を軽減
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(this.char || '?', 0, 0);
+          ctx.restore();
+        } else {
+          // Default: Circle
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        
+        ctx.globalAlpha = 1.0;
+      }
+    }
+
+    function animate() {
+      // 画面をクリア（透明に戻す）
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Screen Shake処理
+      ctx.save();
+      if (currentSettings.screenShake && shakeIntensity > 0) {
+        const dx = (Math.random() - 0.5) * shakeIntensity;
+        const dy = (Math.random() - 0.5) * shakeIntensity;
+        ctx.translate(dx, dy);
+        
+        shakeIntensity *= 0.9; // 減衰
+        if (shakeIntensity < 0.5) shakeIntensity = 0;
+      }
+
+      // Bloom設定を一括適用（高速化のためshadowBlurは廃止し、加算合成のみにする）
+      if (currentSettings.bloom) {
+        ctx.globalCompositeOperation = 'lighter';
+      } else {
+        ctx.globalCompositeOperation = 'source-over';
+      }
+
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.update();
+        p.draw(ctx);
+        if (p.life <= 0) {
+          particles.splice(i, 1);
+        }
+      }
+      
+      // 描画モードを戻す
+      ctx.globalCompositeOperation = 'source-over';
+
+      // コンボカウンターの描画
+      const now = Date.now();
+      const timeSinceLast = now - lastKeyTime;
+      if (currentSettings.showCombo && comboCount > 1 && timeSinceLast < COMBO_TIMEOUT) {
+        ctx.save();
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        // コンボ数が増えるたびにポンと跳ねるアニメーション
+        const fontSize = 40 * comboScale;
+        ctx.font = `italic 900 ${fontSize}px "Arial Black", sans-serif`;
+        // 時間経過でフェードアウト
+        const alpha = 1 - timeSinceLast / COMBO_TIMEOUT;
+        ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.strokeStyle = `rgba(0, 0, 0, ${alpha})`;
+        ctx.lineWidth = 4;
+        ctx.strokeText(`${comboCount}`, canvas.width - 40, canvas.height - 40);
+        ctx.fillText(`${comboCount}`, canvas.width - 40, canvas.height - 40);
+        ctx.restore();
+      }
+      // アニメーション用スケールを減衰
+      if (comboScale > 1.0) comboScale += (1.0 - comboScale) * 0.1;
+
+      // WPM (Words Per Minute) の表示
+      if (currentSettings.showWPM) {
+        const now = Date.now();
+        // 過去60秒間の履歴のみ保持
+        while (wpmHistory.length > 0 && wpmHistory[0] < now - 60000) {
+          wpmHistory.shift();
+        }
+        const wpm = Math.round(wpmHistory.length / 5);
+        
+        ctx.save();
+        ctx.font = 'bold 24px monospace';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.lineWidth = 3;
+        ctx.strokeText(`WPM: ${wpm}`, 20, canvas.height - 20);
+        ctx.fillText(`WPM: ${wpm}`, 20, canvas.height - 20);
+        ctx.restore();
+      }
+
+      ctx.restore();
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    // --- 音声合成 (シンセサイザー) ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let mechBuffer = null;
+
+    // メカニカル音（クリック音）のバッファを生成
+    // ※ WAVファイルを使いたい場合は、この関数内で fetch('click.wav') して decodeAudioData してください
+    function initMechSound() {
+      const sampleRate = audioCtx.sampleRate;
+      const length = sampleRate * 0.05; // 0.05秒の短い音
+      const buffer = audioCtx.createBuffer(1, length, sampleRate);
+      const data = buffer.getChannelData(0);
+      
+      // ホワイトノイズに減衰をかけて「カチッ」という音を作る
+      for (let i = 0; i < length; i++) {
+        // ノイズ * 指数関数的な減衰
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-5 * i / length);
+      }
+      mechBuffer = buffer;
+    }
+    initMechSound();
+    
+    function playSound() {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      
+      if (currentSettings.soundType === 'mech' && mechBuffer) {
+        // --- メカニカル音の再生 ---
+        const source = audioCtx.createBufferSource();
+        source.buffer = mechBuffer;
+        
+        // ピッチをわずかにランダム化してリアリティを出す
+        source.playbackRate.value = 0.9 + Math.random() * 0.2;
+        
+        const gainNode = audioCtx.createGain();
+        // 音量調整 (メカニカル音は少し大きめなので係数を調整)
+        const vol = 0.5 * (currentSettings.volume / 100);
+        gainNode.gain.value = vol;
+        
+        source.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        source.start();
+
+      } else if (currentSettings.soundType === 'popcorn') {
+        // --- ポップコーン音 (Popcorn) ---
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        oscillator.type = 'sine';
+        
+        // 500Hz〜700Hz付近でランダム + コンボで少し高く
+        const freq = 500 + Math.random() * 200 + Math.min(comboCount * 10, 300);
+        oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        // ピッチを急激に下げて「ポッ」という音を作る
+        oscillator.frequency.exponentialRampToValueAtTime(freq * 0.5, audioCtx.currentTime + 0.08);
+
+        const vol = 0.6 * (currentSettings.volume / 100);
+        gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.08);
+
+      } else {
+        // --- 電子音 (Synth) の再生 ---
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        oscillator.type = 'sine';
+        
+        // コンボ数に応じてピッチを上げる
+        const baseFreq = 200;
+        const comboBonus = Math.min(comboCount * 20, 1000);
+        const randomFreq = Math.random() * 200;
+        oscillator.frequency.setValueAtTime(baseFreq + comboBonus + randomFreq, audioCtx.currentTime);
+        
+        // 音量調整
+        const vol = 0.1 * (currentSettings.volume / 100);
+
+        gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.1);
+      }
+    }
+
+    // --- メインプロセスからのイベント受信 ---
+    ipcRenderer.on('keydown-event', (event, arg) => {
+      let x, y;
+
+      // 設定に応じて発生位置を決定
+      if (currentSettings.useMousePos && arg.mouse) {
+        x = arg.mouse.x;
+        y = arg.mouse.y;
+      } else {
+        x = Math.random() * canvas.width;
+        y = Math.random() * canvas.height;
+      }
+
+      // キーコードから文字を取得 (マッピングになければ空文字)
+      const char = keyMap[arg.keycode] || '';
+
+      // 特別なキー (Enter, Space) かどうか
+      const isSpecial = (arg.keycode === 28 || arg.keycode === 57);
+
+      // 特殊キーの連打制限チェック
+      if (isSpecial) {
+        const now = Date.now();
+        // 判定期間外の古い履歴を削除
+        while (specialKeyHistory.length > 0 && specialKeyHistory[0] < now - SPECIAL_KEY_WINDOW) {
+          specialKeyHistory.shift();
+        }
+        // 制限回数を超えていたら生成をスキップ
+        if (specialKeyHistory.length >= SPECIAL_KEY_LIMIT) {
+          return;
+        }
+        specialKeyHistory.push(now);
+      }
+
+      // コンボ更新処理
+      const now = Date.now();
+      if (now - lastKeyTime > COMBO_TIMEOUT) {
+        comboCount = 0;
+      }
+      comboCount++;
+      lastKeyTime = now;
+      comboScale = 1.5; // テキストを跳ねさせる
+      
+      // WPM履歴に追加
+      wpmHistory.push(now);
+
+      // コンボ数に応じてパーティクル数を増やす (10コンボごとに+1、最大+20個)
+      const extraParticles = Math.min(Math.floor(comboCount / 10), 20);
+      const count = (isSpecial ? 20 : 10) + extraParticles;
+
+      // --- 新機能: パーティクル再燃 (Resurgence) ---
+      // 既存のパーティクルが残っている状態でタイプすると、それらが延命され、さらに激しく飛び散る
+      if (currentSettings.enableResurgence) {
+        particles.forEach(p => {
+          // 寿命を回復 (最大値1.0を超えないように)
+          p.life = Math.min(p.life + 0.3, 1.0);
+          
+          // 速度を再加速（現在の動きを増幅 + ランダムな揺らぎ）
+          p.vx = p.vx * 1.5 + (Math.random() - 0.5) * 2;
+          p.vy = p.vy * 1.5 + (Math.random() - 0.5) * 2;
+          
+          // サイズも少し回復させて「ポップ」感を出す
+          p.size = Math.min(p.size * 1.2, currentSettings.particleSize * 2);
+        });
+      }
+
+      for (let i = 0; i < count; i++) {
+        particles.push(new Particle(x, y, char, isSpecial, comboCount));
+      }
+
+      // パーティクルが増えすぎないように古いものから削除
+      if (particles.length > MAX_PARTICLES) {
+        particles.splice(0, particles.length - MAX_PARTICLES);
+      }
+
+      // 画面揺れを追加 (上限あり)
+      if (currentSettings.screenShake) {
+        shakeIntensity = Math.min(shakeIntensity + 5, 20);
+      }
+
+      playSound();
+    });
+  </script>
+</body>
+</html>

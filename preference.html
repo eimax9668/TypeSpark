@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Preferences</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .title-bar {
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+  <div class="title-bar">Preferences</div>
+  
+  <div class="content">
+  <div class="control-group">
+    <label for="volume">Volume: <span id="vol-value">50</span>%</label>
+    <input type="range" id="volume" min="0" max="100" value="50">
+  </div>
+
+  <div class="control-group">
+    <label for="soundType">Sound Type</label>
+    <select id="soundType">
+      <option value="synth">Electronic (Synth)</option>
+      <option value="mech">Mechanical (Click)</option>
+      <option value="popcorn">Popcorn (Pop)</option>
+    </select>
+  </div>
+
+  <div class="control-group">
+    <label for="particleSize">Particle Size: <span id="size-value">5</span></label>
+    <input type="range" id="particleSize" min="1" max="30" value="5">
+  </div>
+
+  <div class="control-group">
+    <label for="particleLife">Particle Life: <span id="life-value">50</span></label>
+    <input type="range" id="particleLife" min="10" max="200" value="50">
+  </div>
+
+  <div class="control-group">
+    <label for="scatterIntensity">Scatter Intensity: <span id="scatter-value">5</span></label>
+    <input type="range" id="scatterIntensity" min="1" max="10" value="5">
+  </div>
+
+  <div class="control-group">
+    <label for="colorType">Particle Color</label>
+    <select id="colorType">
+      <option value="random">Random (Rainbow)</option>
+      <option value="red">Fire (Red/Orange)</option>
+      <option value="blue">Ice (Blue/Cyan)</option>
+      <option value="neon">Cyber (Neon Colors)</option>
+    </select>
+  </div>
+
+  <div class="control-group">
+    <label for="shapeType">Particle Shape</label>
+    <select id="shapeType">
+      <option value="circle">Circle (●)</option>
+      <option value="square">Square (■)</option>
+      <option value="star">Star (★)</option>
+      <option value="heart">Heart (♥)</option>
+      <option value="char">Character (Key)</option>
+    </select>
+  </div>
+
+  <div class="control-group">
+    <label>Visual Effects</label>
+    <div class="toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="gravity">
+        <span class="slider"></span>
+      </label>
+      <span>Enable Gravity</span>
+    </div>
+    <div class="toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="screenShake">
+        <span class="slider"></span>
+      </label>
+      <span>Screen Shake</span>
+    </div>
+    <div class="toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="bloom">
+        <span class="slider"></span>
+      </label>
+      <span>Bloom Effect</span>
+    </div>
+    <div class="toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="showCombo">
+        <span class="slider"></span>
+      </label>
+      <span>Show Combo Counter</span>
+    </div>
+    <div class="toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="enableResurgence">
+        <span class="slider"></span>
+      </label>
+      <span>Particle Resurgence</span>
+    </div>
+    <div class="toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="bounce">
+        <span class="slider"></span>
+      </label>
+      <span>Bounce at Edges</span>
+    </div>
+    <div class="toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="showWPM">
+        <span class="slider"></span>
+      </label>
+      <span>Show WPM</span>
+    </div>
+  </div>
+
+  <div class="control-group">
+    <label>Interaction</label>
+    <div class="toggle-row">
+      <label class="toggle-switch">
+        <input type="checkbox" id="useMousePos">
+        <span class="slider"></span>
+      </label>
+      <span>Spawn at Mouse Cursor</span>
+    </div>
+  </div>
+
+
+    <button id="resetBtn" class="btn-reset">Reset to Defaults</button>
+
+    <div class="footer-info" style="text-align: center; margin-top: 30px;  font-size: 12px; color: #888;">
+      <p>Created by <strong>eimax9668</strong> | <a href="#" id="githubLink" style="color: #007aff; text-decoration: none;">GitHub</a></p>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    const volumeInput = document.getElementById('volume');
+    const volValueDisplay = document.getElementById('vol-value');
+    const sizeInput = document.getElementById('particleSize');
+    const sizeValueDisplay = document.getElementById('size-value');
+    const lifeInput = document.getElementById('particleLife');
+    const lifeValueDisplay = document.getElementById('life-value');
+    const scatterInput = document.getElementById('scatterIntensity');
+    const scatterValueDisplay = document.getElementById('scatter-value');
+    const colorSelect = document.getElementById('colorType');
+    const soundSelect = document.getElementById('soundType');
+    const shapeSelect = document.getElementById('shapeType');
+    const gravityCheckbox = document.getElementById('gravity');
+    const mousePosCheckbox = document.getElementById('useMousePos');
+    const screenShakeCheckbox = document.getElementById('screenShake');
+    const bloomCheckbox = document.getElementById('bloom');
+    const showComboCheckbox = document.getElementById('showCombo');
+    const resurgenceCheckbox = document.getElementById('enableResurgence');
+    const bounceCheckbox = document.getElementById('bounce');
+    const showWPMCheckbox = document.getElementById('showWPM');
+    const resetBtn = document.getElementById('resetBtn');
+    const githubLink = document.getElementById('githubLink');
+
+    const defaultSettings = {
+      volume: 50,
+      particleSize: 5,
+      particleLife: 50,
+      colorType: 'random',
+      soundType: 'synth',
+      shapeType: 'circle',
+      gravity: false,
+      useMousePos: false,
+      screenShake: false,
+      bloom: false,
+      showCombo: true,
+      bounce: false,
+      showWPM: false,
+    };
+
+    // 設定を送信する関数
+    function sendSettings() {
+      const settings = {
+        volume: parseInt(volumeInput.value, 10),
+        particleSize: parseInt(sizeInput.value, 10),
+        particleLife: parseInt(lifeInput.value, 10),
+        scatterIntensity: parseInt(scatterInput.value, 10),
+        colorType: colorSelect.value,
+        soundType: soundSelect.value,
+        shapeType: shapeSelect.value,
+        gravity: gravityCheckbox.checked,
+        useMousePos: mousePosCheckbox.checked,
+        screenShake: screenShakeCheckbox.checked,
+        bloom: bloomCheckbox.checked,
+        showCombo: showComboCheckbox.checked,
+        enableResurgence: resurgenceCheckbox.checked,
+        bounce: bounceCheckbox.checked,
+        showWPM: showWPMCheckbox.checked,
+      };
+      ipcRenderer.send('update-settings', settings);
+    }
+
+    // 音量変更時のイベント
+    volumeInput.addEventListener('input', (e) => {
+      volValueDisplay.textContent = e.target.value;
+      sendSettings();
+    });
+
+    // サイズ変更時のイベント
+    sizeInput.addEventListener('input', (e) => {
+      sizeValueDisplay.textContent = e.target.value;
+      sendSettings();
+    });
+
+    // 寿命変更時のイベント
+    lifeInput.addEventListener('input', (e) => {
+      lifeValueDisplay.textContent = e.target.value;
+      sendSettings();
+    });
+
+    // 散らばり強度変更時のイベント
+    scatterInput.addEventListener('input', (e) => {
+      scatterValueDisplay.textContent = e.target.value;
+      sendSettings();
+    });
+
+    // 色変更時のイベント
+    colorSelect.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // サウンドタイプ変更時のイベント
+    soundSelect.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // 形状変更時のイベント
+    shapeSelect.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // 重力変更時のイベント
+    gravityCheckbox.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // マウス追従変更時のイベント
+    mousePosCheckbox.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // 画面揺れ変更時のイベント
+    screenShakeCheckbox.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // 発光エフェクト変更時のイベント
+    bloomCheckbox.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // コンボ表示変更時のイベント
+    showComboCheckbox.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // 再燃機能変更時のイベント
+    resurgenceCheckbox.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // 跳ね返り設定変更時のイベント
+    bounceCheckbox.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // WPM表示変更時のイベント
+    showWPMCheckbox.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // GitHubボタンのイベント
+    githubLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      require('electron').shell.openExternal('https://github.com/eimax9668/TypeSpark');
+    });
+
+    // リセットボタンのイベント
+    resetBtn.addEventListener('click', () => {
+      volumeInput.value = defaultSettings.volume;
+      volValueDisplay.textContent = defaultSettings.volume;
+      
+      sizeInput.value = defaultSettings.particleSize;
+      sizeValueDisplay.textContent = defaultSettings.particleSize;
+      
+      lifeInput.value = defaultSettings.particleLife;
+      lifeValueDisplay.textContent = defaultSettings.particleLife;
+
+      scatterInput.value = defaultSettings.scatterIntensity;
+      scatterValueDisplay.textContent = defaultSettings.particleLife;
+
+      colorSelect.value = defaultSettings.colorType;
+      soundSelect.value = defaultSettings.soundType;
+      shapeSelect.value = defaultSettings.shapeType;
+      
+      gravityCheckbox.checked = defaultSettings.gravity;
+      mousePosCheckbox.checked = defaultSettings.useMousePos;
+      screenShakeCheckbox.checked = defaultSettings.screenShake;
+      bloomCheckbox.checked = defaultSettings.bloom;
+      showComboCheckbox.checked = defaultSettings.showCombo;
+      resurgenceCheckbox.checked = defaultSettings.enableResurgence;
+      bounceCheckbox.checked = defaultSettings.bounce;
+      showWPMCheckbox.checked = defaultSettings.showWPM;
+      sendSettings();
+    });
+
+    // 起動時に保存された設定を取得してUIに反映
+    ipcRenderer.invoke('get-settings').then(settings => {
+      volumeInput.value = settings.volume;
+      volValueDisplay.textContent = settings.volume;
+      sizeInput.value = settings.particleSize;
+      sizeValueDisplay.textContent = settings.particleSize;
+      lifeInput.value = settings.particleLife;
+      lifeValueDisplay.textContent = settings.particleLife;
+      scatterInput.value = settings.scatterIntensity;
+      scatterValueDisplay.textContent = settings.scatterIntensity;
+      colorSelect.value = settings.colorType;
+      soundSelect.value = settings.soundType;
+      shapeSelect.value = settings.shapeType;
+      gravityCheckbox.checked = settings.gravity;
+      mousePosCheckbox.checked = settings.useMousePos;
+      screenShakeCheckbox.checked = settings.screenShake;
+      bloomCheckbox.checked = settings.bloom;
+      showComboCheckbox.checked = settings.showCombo;
+      resurgenceCheckbox.checked = settings.enableResurgence;
+      bounceCheckbox.checked = settings.bounce;
+      showWPMCheckbox.checked = settings.showWPM;
+    });
+  </script>
+</body>
+</html>
