@@ -4,7 +4,9 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --mac dmg"
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win"
   },
   "dependencies": {
     "uiohook-napi": "^1.5.4"
@@ -14,7 +16,8 @@
     "electron-builder": "^26.4.0"
   },
   "build": {
-    "appId": "com.typespark.app",
+    "appId": "com.eimax9668.typespark",
+    "productName": "TypeSpark",
     "directories": {
       "buildResources": "build"
     },
@@ -27,7 +30,12 @@
         "LSUIElement": 1
       },
       "icon": "build/icon.icns",
-      "target": ["dmg"]
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": "nsis"
     },
     "dmg": {
       "icon": "build/icon.icns",
@@ -36,8 +44,17 @@
         "height": 380
       },
       "contents": [
-        { "x": 130, "y": 150, "type": "file" },
-        { "x": 410, "y": 150, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 150,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 150,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   }
