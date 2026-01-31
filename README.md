@@ -24,7 +24,7 @@ Electron製の透明なウィンドウが最前面にオーバーレイ表示さ
 ## ダウンロードと実行
 DMGは GitHub Releases からダウンロードできます。
 
-https://github.com/eimax9668/TypeSpark/release
+https://github.com/eimax9668/TypeSpark/releases
 
 ## ダウンロードと実行（Windows）
 
