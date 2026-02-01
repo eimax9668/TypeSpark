@@ -28,7 +28,8 @@
       scatterIntensity: 5,
       enableResurgence: false,
       bounce: false,
-      showWPM: false
+      showWPM: false,
+      enableEcho: false
     };
 
     ipcRenderer.on('update-settings', (event, newSettings) => {
@@ -328,6 +329,31 @@
 
     // --- 音声合成 (シンセサイザー) ---
     let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const masterGain = audioCtx.createGain();
+    masterGain.gain.value = 1.0;
+    masterGain.connect(audioCtx.destination);
+
+    // Explicitly unlock audio on real user gestures
+    async function unlockAudio() {
+      if (!audioCtx) return;
+      try {
+        if (audioCtx.state !== 'running') {
+          await audioCtx.resume();
+        }
+        // iOS/Windows quirk: create+start a silent oscillator once to fully unlock
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        g.gain.value = 0;
+        o.connect(g).connect(masterGain);
+        o.start();
+        o.stop(audioCtx.currentTime + 0.01);
+      } catch (e) {}
+    }
+
+    // Explicit user-gesture unlock (required for packaged apps)
+    window.addEventListener('mousedown', unlockAudio, { once: true });
+    window.addEventListener('keydown', unlockAudio, { once: true });
+    window.addEventListener('touchstart', unlockAudio, { once: true });
     let mechBuffer = null;
 
     // メカニカル音（クリック音）のバッファを生成
@@ -348,85 +374,135 @@
     }
     initMechSound();
     
-    // オーディオデバイスの変更（イヤホン接続など）を検知してコンテキストを再生成
+    // オーディオデバイスの変更（イヤホン接続など）を検知
+    // コンテキストを再生成するとバッファ消失やSuspended状態の原因になるため、
+    // 再生成はせず、必要であればResumeのみを行うように変更
     if (navigator.mediaDevices) {
       navigator.mediaDevices.ondevicechange = async () => {
-        if (audioCtx && audioCtx.state !== 'closed') {
-          try { await audioCtx.close(); } catch(e) {}
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume().catch(() => {});
         }
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        initMechSound();
       };
     }
 
     function playSound() {
       if (!audioCtx) return;
-      if (audioCtx.state === 'suspended') audioCtx.resume();
+      
+      // 重要: キー入力のたびに確実にAudioContextを再開させる
+      // これにより、Youtube等を再生していなくても音が鳴るようにする
+      if (audioCtx && audioCtx.state !== 'running') {
+        audioCtx.resume().catch(() => {});
+      }
+      
       if (audioCtx.state === 'closed') return;
       
-      if (currentSettings.soundType === 'mech' && mechBuffer) {
+      const now = audioCtx.currentTime;
+      let source = null;
+      let gainNode = audioCtx.createGain();
+
+      if (currentSettings.soundType === 'mech') {
+        // バッファが何らかの理由で消えていた場合の安全策
+        if (!mechBuffer) initMechSound();
+
+        if (mechBuffer) {
         // --- メカニカル音の再生 ---
-        const source = audioCtx.createBufferSource();
+        source = audioCtx.createBufferSource();
         source.buffer = mechBuffer;
         
         // ピッチをわずかにランダム化してリアリティを出す
         source.playbackRate.value = 0.9 + Math.random() * 0.2;
         
-        const gainNode = audioCtx.createGain();
         // 音量調整 (メカニカル音は少し大きめなので係数を調整)
         const vol = 0.5 * (currentSettings.volume / 100);
         gainNode.gain.value = vol;
         
-        source.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        source.start();
-
+        }
       } else if (currentSettings.soundType === 'popcorn') {
-        // --- ポップコーン音 (Popcorn) ---
-        const oscillator = audioCtx.createOscillator();
+        // --- ポップコーン音（旧バージョン再現 + 安定化） ---
+        const osc = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
 
-        oscillator.type = 'sine';
-        
-        // 500Hz〜700Hz付近でランダム + コンボで少し高く
+        osc.type = 'sine';
+
+        // ★ 旧index.htmlと同じ周波数設計
         const freq = 500 + Math.random() * 200 + Math.min(comboCount * 10, 300);
-        oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        // ピッチを急激に下げて「ポッ」という音を作る
-        oscillator.frequency.exponentialRampToValueAtTime(freq * 0.5, audioCtx.currentTime + 0.08);
+        const now = audioCtx.currentTime;
+
+        osc.frequency.setValueAtTime(freq, now);
+
+        // ★ exponentialRamp は使うが、時間を少しだけ延ばす
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.5, now + 0.12);
 
         const vol = 0.6 * (currentSettings.volume / 100);
-        gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+        gainNode.gain.setValueAtTime(vol, now);
 
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + 0.08);
+        // ★ フェードアウトも旧仕様を維持しつつ余裕を持たせる
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
 
+        osc.connect(gainNode);
+        gainNode.connect(masterGain);
+
+        osc.start(now);
+
+        // ★ stop を ramp 終了より少し後に
+        osc.stop(now + 0.14);
       } else {
-        // --- 電子音 (Synth) の再生 ---
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
+  // --- 電子音 (Synth) の再生：旧版準拠・耳に刺さらない版 ---
+  const oscillator = audioCtx.createOscillator();
+  const gainNode = audioCtx.createGain();
 
-        oscillator.type = 'sine';
-        
-        // コンボ数に応じてピッチを上げる
-        const baseFreq = 200;
-        const comboBonus = Math.min(comboCount * 20, 1000);
-        const randomFreq = Math.random() * 200;
-        oscillator.frequency.setValueAtTime(baseFreq + comboBonus + randomFreq, audioCtx.currentTime);
-        
-        // 音量調整
-        const vol = 0.1 * (currentSettings.volume / 100);
+  // 旧版と同じ sine に戻す（triangleは使わない）
+  oscillator.type = 'sine';
 
-        gainNode.gain.setValueAtTime(vol, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+  const now = audioCtx.currentTime;
 
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+  // ★ 旧スクリプトと同一の周波数設計
+  const baseFreq = 200;
+  const comboBonus = Math.min(comboCount * 20, 1000);
+  const randomFreq = Math.random() * 200;
+  const freq = baseFreq + comboBonus + randomFreq;
 
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + 0.1);
+  oscillator.frequency.setValueAtTime(freq, now);
+
+  // ★ 急激な変化を避けるため pitch は固定（ランプしない）
+
+  // ★ 音量は旧版と同じ小さめ
+  const vol = 0.1 * (currentSettings.volume / 100);
+
+  // ★ exponentialRamp を使わず、超短いフェードで丸くする
+  gainNode.gain.setValueAtTime(0.0, now);
+  gainNode.gain.linearRampToValueAtTime(vol, now + 0.01);
+  gainNode.gain.linearRampToValueAtTime(0.0, now + 0.12);
+
+  oscillator.connect(gainNode);
+  gainNode.connect(audioCtx.destination);
+
+  oscillator.start(now);
+  oscillator.stop(now + 0.13);
+}
+
+      // エフェクトと出力の接続
+      if (source) {
+        source.connect(gainNode);
+        gainNode.connect(masterGain);
+
+        // エコー（Delay）が有効な場合
+        if (currentSettings.enableEcho) {
+          const delay = audioCtx.createDelay();
+          delay.delayTime.value = 0.15; // 150msの遅延
+          const feedback = audioCtx.createGain();
+          feedback.gain.value = 0.3; // 30%の音量で繰り返す
+
+          gainNode.connect(delay);
+          delay.connect(feedback);
+          feedback.connect(delay);
+          delay.connect(masterGain);
+        }
+
+        // For synth, oscillator.start is called above; for others, call here
+        if (!(currentSettings.soundType === 'synth' || currentSettings.soundType === undefined)) {
+          source.start(now);
+        }
       }
     }
 
