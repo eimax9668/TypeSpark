@@ -25,7 +25,7 @@ jobs:
         run: npm install
 
       - name: Build Windows app
-        run: npm run build:win
+        run: npm run build:win -- --win portable
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}

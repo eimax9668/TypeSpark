@@ -27,6 +27,13 @@
       <option value="mech">Mechanical (Click)</option>
       <option value="popcorn">Popcorn (Pop)</option>
     </select>
+    <div class="toggle-row" style="margin-top: 12px;">
+      <label class="toggle-switch">
+        <input type="checkbox" id="enableEcho">
+        <span class="slider"></span>
+      </label>
+      <span>Enable Echo / Reverb</span>
+    </div>
   </div>
 
   <div class="control-group">
@@ -150,6 +157,7 @@
     const scatterValueDisplay = document.getElementById('scatter-value');
     const colorSelect = document.getElementById('colorType');
     const soundSelect = document.getElementById('soundType');
+    const echoCheckbox = document.getElementById('enableEcho');
     const shapeSelect = document.getElementById('shapeType');
     const gravityCheckbox = document.getElementById('gravity');
     const mousePosCheckbox = document.getElementById('useMousePos');
@@ -176,6 +184,7 @@
       showCombo: true,
       bounce: false,
       showWPM: false,
+      enableEcho: false,
     };
 
     // 設定を送信する関数
@@ -187,6 +196,7 @@
         scatterIntensity: parseInt(scatterInput.value, 10),
         colorType: colorSelect.value,
         soundType: soundSelect.value,
+        enableEcho: echoCheckbox.checked,
         shapeType: shapeSelect.value,
         gravity: gravityCheckbox.checked,
         useMousePos: mousePosCheckbox.checked,
@@ -231,6 +241,11 @@
 
     // サウンドタイプ変更時のイベント
     soundSelect.addEventListener('change', () => {
+      sendSettings();
+    });
+
+    // エコー設定変更時のイベント
+    echoCheckbox.addEventListener('change', () => {
       sendSettings();
     });
 
@@ -301,6 +316,7 @@
 
       colorSelect.value = defaultSettings.colorType;
       soundSelect.value = defaultSettings.soundType;
+      echoCheckbox.checked = defaultSettings.enableEcho;
       shapeSelect.value = defaultSettings.shapeType;
       
       gravityCheckbox.checked = defaultSettings.gravity;
@@ -326,6 +342,7 @@
       scatterValueDisplay.textContent = settings.scatterIntensity;
       colorSelect.value = settings.colorType;
       soundSelect.value = settings.soundType;
+      echoCheckbox.checked = settings.enableEcho;
       shapeSelect.value = settings.shapeType;
       gravityCheckbox.checked = settings.gravity;
       mousePosCheckbox.checked = settings.useMousePos;

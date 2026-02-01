@@ -5,6 +5,7 @@ const fs = require('fs');
 let win;
 let tray;
 let prefWin;
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 // 設定ファイルのパスとデフォルト値
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
@@ -24,7 +25,8 @@ const defaultSettings = {
   scatterIntensity: 5, // 1(弱い) 〜 10(激しい)
   enableResurgence: false, // パーティクル延命・再加速機能
   bounce: false, // 画面端での跳ね返り
-  showWPM: false // WPM表示
+  showWPM: false, // WPM表示
+  enableEcho: false // エコー効果
 };
 
 // メモリ上で設定を保持（ディスク読み込みを減らすため）
@@ -57,6 +59,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      backgroundThrottling: false // ウィンドウが非アクティブでも処理（音声など）を抑制しない
     }
   });
 
