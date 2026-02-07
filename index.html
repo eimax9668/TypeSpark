@@ -118,25 +118,34 @@
         // 設定に応じた色決定ロジック
         let hue;
         if (fixedHue !== null) {
-          hue = fixedHue; // 指定された色（花火モードなど）
+          hue = fixedHue;
+          this.color = `hsl(${hue}, 100%, 50%)`;
         } else {
           switch (currentSettings.colorType) {
           case 'red':
             hue = 330 + Math.random() * 60; // 赤〜オレンジ系
+            this.color = `hsl(${hue}, 100%, 50%)`;
             break;
           case 'blue':
             hue = 180 + Math.random() * 80; // 青〜水色〜紫系
+            this.color = `hsl(${hue}, 100%, 50%)`;
+            break;
+          case 'green':
+            // #1b6f49周辺 (Hue ~147, Sat ~61%, Light ~27%)
+            hue = 130 + Math.random() * 40;
+            this.color = `hsl(${hue}, 40%, 25%)`;
             break;
           case 'neon':
             // 鮮やかな色（ピンク、シアン、ライム）からランダム
             const neons = [300, 180, 120, 60]; 
             hue = neons[Math.floor(Math.random() * neons.length)] + (Math.random() * 20 - 10);
+            this.color = `hsl(${hue}, 100%, 50%)`;
             break;
           default: // random
             hue = Math.random() * 360;
+            this.color = `hsl(${hue}, 100%, 50%)`;
           }
         }
-        this.color = `hsl(${hue}, 100%, 50%)`;
         
         // コンボ数に応じてサイズも少し大きく (最大1.5倍)
         const comboSizeMult = 1 + Math.min(combo * 0.01, 0.5);
