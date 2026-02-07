@@ -67,9 +67,6 @@ function createWindow() {
   win.setIgnoreMouseEvents(true, { forward: true });
 
   win.loadFile('index.html');
-  
-  // 開発者ツールを開きたい場合はコメントアウトを外す
-  // win.webContents.openDevTools({ mode: 'detach' });
 }
 
 function createPreferenceWindow() {
@@ -111,9 +108,16 @@ app.whenReady().then(() => {
   createWindow();
 
   // メニューバー(トレイ)アイコンの設定
-  // macOSで自動色反転させるため 'iconTemplate.png' を読み込む
-  // (ファイル名の末尾に "Template" をつけるとmacOSが自動で色を調整します)
-  const iconPath = path.join(__dirname, 'iconTemplate.png');
+  let iconPath;
+  if (process.platform === 'win32') {
+    // Windowsの場合は icon.png を優先的に探す
+    const winPath = path.join(__dirname, 'icon.png');
+    iconPath = fs.existsSync(winPath) ? winPath : path.join(__dirname, 'iconTemplate.png');
+  } else {
+    // macOSの場合は Template 画像を使用
+    iconPath = path.join(__dirname, 'iconTemplate.png');
+  }
+
   let icon = nativeImage.createFromPath(iconPath);
 
   // もし画像が見つからない場合は、デフォルトの赤い四角(Base64)を使用する
@@ -123,8 +127,10 @@ app.whenReady().then(() => {
   } else {
     // 画像が読み込めた場合、メニューバーに適したサイズ(高さ16px)にリサイズする
     icon = icon.resize({ height: 16 });
-    // リサイズするとTemplate属性が失われることがあるため、明示的に設定する
-    icon.setTemplateImage(true);
+    // macOSのみTemplateImage設定を適用する
+    if (process.platform === 'darwin') {
+      icon.setTemplateImage(true);
+    }
   }
   
   tray = new Tray(icon);
