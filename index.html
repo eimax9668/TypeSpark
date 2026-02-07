@@ -91,9 +91,11 @@
     };
 
     class Particle {
-      constructor(x, y, char, isSpecial = false, combo = 0) {
+      constructor(x, y, char, isSpecial = false, combo = 0, fixedHue = null) {
         this.x = x;
         this.y = y;
+        this.prevX = x; // 軌跡描画用
+        this.prevY = y;
         // ランダムな方向に飛び散る
         const angle = Math.random() * Math.PI * 2;
         // コンボ数に応じて速度アップ (最大2.5倍)
@@ -115,7 +117,10 @@
         
         // 設定に応じた色決定ロジック
         let hue;
-        switch (currentSettings.colorType) {
+        if (fixedHue !== null) {
+          hue = fixedHue; // 指定された色（花火モードなど）
+        } else {
+          switch (currentSettings.colorType) {
           case 'red':
             hue = 330 + Math.random() * 60; // 赤〜オレンジ系
             break;
@@ -129,6 +134,7 @@
             break;
           default: // random
             hue = Math.random() * 360;
+          }
         }
         this.color = `hsl(${hue}, 100%, 50%)`;
         
@@ -144,11 +150,14 @@
       }
 
       update() {
+        this.prevX = this.x;
+        this.prevY = this.y;
+
         this.x += this.vx;
         this.y += this.vy;
         
-        // 重力が有効な場合、下方向への加速を加える
-        if (currentSettings.gravity) {
+        // 重力が有効な場合、または花火モードの場合は下方向への加速を加える
+        if (currentSettings.gravity || currentSettings.shapeType === 'fireworks') {
           this.vy += 0.3; 
         }
 
@@ -236,6 +245,18 @@
           ctx.textBaseline = 'middle';
           ctx.fillText(this.char || '?', 0, 0);
           ctx.restore();
+        } else if (currentSettings.shapeType === 'fireworks') {
+          // 花火（軌跡を描く）
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(this.prevX, this.prevY);
+          ctx.lineTo(this.x, this.y);
+          ctx.lineWidth = this.size * 0.5;
+          ctx.lineCap = 'round';
+          ctx.strokeStyle = this.color;
+          ctx.globalCompositeOperation = 'lighter'; // 発光させる
+          ctx.stroke();
+          ctx.restore();
         } else {
           // Default: Circle
           ctx.beginPath();
@@ -248,7 +269,6 @@
     }
 
     function animate() {
-      // 画面をクリア（透明に戻す）
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Screen Shake処理
@@ -355,19 +375,13 @@
     window.addEventListener('keydown', unlockAudio, { once: true });
     window.addEventListener('touchstart', unlockAudio, { once: true });
     let mechBuffer = null;
-
-    // メカニカル音（クリック音）のバッファを生成
-    // ※ WAVファイルを使いたい場合は、この関数内で fetch('click.wav') して decodeAudioData してください
     function initMechSound() {
       if (!audioCtx) return;
       const sampleRate = audioCtx.sampleRate;
       const length = sampleRate * 0.05; // 0.05秒の短い音
       const buffer = audioCtx.createBuffer(1, length, sampleRate);
       const data = buffer.getChannelData(0);
-      
-      // ホワイトノイズに減衰をかけて「カチッ」という音を作る
-      for (let i = 0; i < length; i++) {
-        // ノイズ * 指数関数的な減衰
+            for (let i = 0; i < length; i++) {
         data[i] = (Math.random() * 2 - 1) * Math.exp(-5 * i / length);
       }
       mechBuffer = buffer;
@@ -388,8 +402,6 @@
     function playSound() {
       if (!audioCtx) return;
       
-      // 重要: キー入力のたびに確実にAudioContextを再開させる
-      // これにより、Youtube等を再生していなくても音が鳴るようにする
       if (audioCtx && audioCtx.state !== 'running') {
         audioCtx.resume().catch(() => {});
       }
@@ -399,39 +411,26 @@
       const now = audioCtx.currentTime;
       let source = null;
       let gainNode = audioCtx.createGain();
+      let stopTime = 0;
 
       if (currentSettings.soundType === 'mech') {
-        // バッファが何らかの理由で消えていた場合の安全策
         if (!mechBuffer) initMechSound();
 
         if (mechBuffer) {
-        // --- メカニカル音の再生 ---
-        source = audioCtx.createBufferSource();
-        source.buffer = mechBuffer;
-        
-        // ピッチをわずかにランダム化してリアリティを出す
-        source.playbackRate.value = 0.9 + Math.random() * 0.2;
-        
-        // 音量調整 (メカニカル音は少し大きめなので係数を調整)
-        const vol = 0.5 * (currentSettings.volume / 100);
-        gainNode.gain.value = vol;
-        
+          source = audioCtx.createBufferSource();
+          source.buffer = mechBuffer;
+          
+          source.playbackRate.value = 0.9 + Math.random() * 0.2;
+          
+          const vol = 0.5 * (currentSettings.volume / 100);
+          gainNode.gain.value = vol;
         }
       } else if (currentSettings.soundType === 'popcorn') {
-        // --- ポップコーン音（旧バージョン再現 + 安定化） ---
-        const osc = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-
-        osc.type = 'sine';
-
-        // ★ 旧index.htmlと同じ周波数設計
+        source = audioCtx.createOscillator();
+        source.type = 'sine';
         const freq = 500 + Math.random() * 200 + Math.min(comboCount * 10, 300);
-        const now = audioCtx.currentTime;
-
-        osc.frequency.setValueAtTime(freq, now);
-
-        // ★ exponentialRamp は使うが、時間を少しだけ延ばす
-        osc.frequency.exponentialRampToValueAtTime(freq * 0.5, now + 0.12);
+        source.frequency.setValueAtTime(freq, now);
+        source.frequency.exponentialRampToValueAtTime(freq * 0.5, now + 0.12);
 
         const vol = 0.6 * (currentSettings.volume / 100);
         gainNode.gain.setValueAtTime(vol, now);
@@ -439,47 +438,28 @@
         // ★ フェードアウトも旧仕様を維持しつつ余裕を持たせる
         gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
 
-        osc.connect(gainNode);
-        gainNode.connect(masterGain);
-
-        osc.start(now);
-
         // ★ stop を ramp 終了より少し後に
-        osc.stop(now + 0.14);
+        stopTime = now + 0.14;
       } else {
-  // --- 電子音 (Synth) の再生：旧版準拠・耳に刺さらない版 ---
-  const oscillator = audioCtx.createOscillator();
-  const gainNode = audioCtx.createGain();
+        // --- 電子音 (Synth) の再生：旧版準拠・耳に刺さらない版 ---
+        source = audioCtx.createOscillator();
 
-  // 旧版と同じ sine に戻す（triangleは使わない）
-  oscillator.type = 'sine';
+        // 旧版と同じ sine に戻す（triangleは使わない）
+        source.type = 'sine';
 
-  const now = audioCtx.currentTime;
+        const baseFreq = 200;
+        const comboBonus = Math.min(comboCount * 20, 1000);
+        const randomFreq = Math.random() * 200;
+        const freq = baseFreq + comboBonus + randomFreq;
 
-  // ★ 旧スクリプトと同一の周波数設計
-  const baseFreq = 200;
-  const comboBonus = Math.min(comboCount * 20, 1000);
-  const randomFreq = Math.random() * 200;
-  const freq = baseFreq + comboBonus + randomFreq;
-
-  oscillator.frequency.setValueAtTime(freq, now);
-
-  // ★ 急激な変化を避けるため pitch は固定（ランプしない）
-
-  // ★ 音量は旧版と同じ小さめ
-  const vol = 0.1 * (currentSettings.volume / 100);
-
-  // ★ exponentialRamp を使わず、超短いフェードで丸くする
-  gainNode.gain.setValueAtTime(0.0, now);
-  gainNode.gain.linearRampToValueAtTime(vol, now + 0.01);
-  gainNode.gain.linearRampToValueAtTime(0.0, now + 0.12);
-
-  oscillator.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
-
-  oscillator.start(now);
-  oscillator.stop(now + 0.13);
-}
+        source.frequency.setValueAtTime(freq, now);
+        const vol = 0.1 * (currentSettings.volume / 100);
+        gainNode.gain.setValueAtTime(0.0, now);
+        gainNode.gain.linearRampToValueAtTime(vol, now + 0.01);
+        gainNode.gain.linearRampToValueAtTime(0.0, now + 0.12);
+        
+        stopTime = now + 0.13;
+      }
 
       // エフェクトと出力の接続
       if (source) {
@@ -499,10 +479,8 @@
           delay.connect(masterGain);
         }
 
-        // For synth, oscillator.start is called above; for others, call here
-        if (!(currentSettings.soundType === 'synth' || currentSettings.soundType === undefined)) {
-          source.start(now);
-        }
+        source.start(now);
+        if (stopTime > 0) source.stop(stopTime);
       }
     }
 
@@ -547,16 +525,9 @@
       comboCount++;
       lastKeyTime = now;
       comboScale = 1.5; // テキストを跳ねさせる
-      
-      // WPM履歴に追加
       wpmHistory.push(now);
-
-      // コンボ数に応じてパーティクル数を増やす (10コンボごとに+1、最大+20個)
       const extraParticles = Math.min(Math.floor(comboCount / 10), 20);
       const count = (isSpecial ? 20 : 10) + extraParticles;
-
-      // --- 新機能: パーティクル再燃 (Resurgence) ---
-      // 既存のパーティクルが残っている状態でタイプすると、それらが延命され、さらに激しく飛び散る
       if (currentSettings.enableResurgence) {
         particles.forEach(p => {
           // 寿命を回復 (最大値1.0を超えないように)
@@ -571,8 +542,14 @@
         });
       }
 
+      // 花火は色固定
+      let fireworkHue = null;
+      if (currentSettings.shapeType === 'fireworks') {
+        fireworkHue = Math.random() * 360;
+      }
+
       for (let i = 0; i < count; i++) {
-        particles.push(new Particle(x, y, char, isSpecial, comboCount));
+        particles.push(new Particle(x, y, char, isSpecial, comboCount, fireworkHue));
       }
 
       // パーティクルが増えすぎないように古いものから削除
