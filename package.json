@@ -1,6 +1,6 @@
 {
   "name": "typespark",
-  "version": "1.1.6",
+  "version": "1.2.6",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -35,7 +35,10 @@
       ]
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "dmg": {
       "icon": "build/icon.icns",
