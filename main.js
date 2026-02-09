@@ -29,7 +29,6 @@ const defaultSettings = {
   enableEcho: false // エコー効果
 };
 
-// メモリ上で設定を保持（ディスク読み込みを減らすため）
 let currentSettings = { ...defaultSettings };
 
 function loadSettings() {
@@ -142,11 +141,8 @@ app.whenReady().then(() => {
   tray.setContextMenu(contextMenu);
   tray.setToolTip('TypeSpark');
 
-  // キーボード入力の監視を開始
   uIOhook.on('keydown', (e) => {
-    // ウィンドウが存在する場合のみレンダラーへ通知
     if (win && !win.isDestroyed()) {
-      // マウス座標を取得 (設定で有効な場合のみ)
       let mouse = null;
       if (currentSettings.useMousePos) {
         mouse = screen.getCursorScreenPoint();
@@ -160,7 +156,6 @@ app.whenReady().then(() => {
     return loadSettings();
   });
 
-  // 設定画面からの変更を受け取り、メインウィンドウへ転送する
   ipcMain.on('update-settings', (event, settings) => {
     const current = loadSettings();
     const newSettings = { ...current, ...settings };
@@ -182,7 +177,6 @@ app.whenReady().then(() => {
   uIOhook.start();
 });
 
-// アプリ終了時の処理
 app.on('will-quit', () => {
   uIOhook.stop();
 });
