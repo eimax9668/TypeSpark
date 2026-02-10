@@ -62,6 +62,14 @@ function createWindow() {
     }
   });
 
+  win.webContents.setWindowOpenHandler(() => { return { action: 'deny' }; });
+  
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url !== win.webContents.getURL()) {
+      event.preventDefault();
+    }
+  });
+
   // マウスイベントを完全に無視（後ろのウィンドウをクリックできるようにする）
   win.setIgnoreMouseEvents(true, { forward: true });
 
@@ -91,6 +99,11 @@ function createPreferenceWindow() {
       contextIsolation: false,
     }
   });
+
+  prefWin.webContents.setWindowOpenHandler(({ url }) => {
+    return { action: 'deny' };
+  });
+  prefWin.webContents.on('will-navigate', (event) => { event.preventDefault(); });
 
   prefWin.loadFile('preference.html');
 }
@@ -135,7 +148,7 @@ app.whenReady().then(() => {
   tray = new Tray(icon);
   const contextMenu = Menu.buildFromTemplate([
     { label: `TypeSpark v${app.getVersion()}`, enabled: false },
-    { label: 'Preference', click: createPreferenceWindow },
+    { label: 'Preferences', click: createPreferenceWindow },
     { label: 'Quit', click: () => app.quit() }
   ]);
   tray.setContextMenu(contextMenu);

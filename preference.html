@@ -8,11 +8,35 @@
   .title-bar {
     -webkit-app-region: drag;
     user-select: none;
+    position: relative;
+  }
+  .win-close-btn {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 45px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 16px;
+    cursor: default;
+    -webkit-app-region: no-drag;
+    transition: background 0.2s, color 0.2s;
+    color: #666;
+  }
+  .win-close-btn:hover {
+    background-color: #e81123;
+    color: white;
   }
 </style>
 </head>
 <body>
-  <div class="title-bar">Preferences</div>
+  <div class="title-bar">
+    Preferences
+    <div id="win-close-btn" class="win-close-btn">✕</div>
+  </div>
   
   <div class="content">
   <div class="control-group">
@@ -331,6 +355,16 @@
       showWPMCheckbox.checked = defaultSettings.showWPM;
       sendSettings();
     });
+
+    // Windows用閉じるボタンの制御
+    if (process.platform !== 'darwin') {
+      const closeBtn = document.getElementById('win-close-btn');
+      closeBtn.addEventListener('click', () => {
+        window.close();
+      });
+    } else {
+      document.getElementById('win-close-btn').style.display = 'none';
+    }
 
     // 起動時に保存された設定を取得してUIに反映
     ipcRenderer.invoke('get-settings').then(settings => {

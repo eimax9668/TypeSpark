@@ -152,16 +152,16 @@
         }
       }
 
-      update() {
+      update(timeScale) {
         this.prevX = this.x;
         this.prevY = this.y;
 
-        this.x += this.vx;
-        this.y += this.vy;
+        this.x += this.vx * timeScale;
+        this.y += this.vy * timeScale;
         
         // 重力が有効な場合、または花火モードの場合は下方向への加速を加える
         if (currentSettings.gravity || currentSettings.shapeType === 'fireworks') {
-          this.vy += 0.3; 
+          this.vy += 0.3 * timeScale; 
         }
 
         // 跳ね返り処理 (Bounce)
@@ -185,11 +185,11 @@
         }
 
         // 設定された寿命に基づいて減衰 (Life値が大きいほど減りが遅い)
-        this.life -= 1.0 / (currentSettings.particleLife || 50);
-        this.size *= 0.95; // 徐々に小さく
+        this.life -= (1.0 / (currentSettings.particleLife || 50)) * timeScale;
+        this.size *= Math.pow(0.95, timeScale); // 徐々に小さく
         
         // 回転させる
-        this.rotation += this.rotationSpeed;
+        this.rotation += this.rotationSpeed * timeScale;
       }
 
       draw(ctx) {
@@ -271,7 +271,15 @@
       }
     }
 
-    function animate() {
+    let lastTime = 0;
+    function animate(timestamp) {
+      if (!lastTime) lastTime = timestamp;
+      const deltaTime = timestamp - lastTime;
+      lastTime = timestamp;
+
+      // 60FPS (約16.67ms) を基準としたタイムスケールを計算
+      const timeScale = Math.min(deltaTime, 100) / (1000 / 60);
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Screen Shake処理
@@ -281,7 +289,7 @@
         const dy = (Math.random() - 0.5) * shakeIntensity;
         ctx.translate(dx, dy);
         
-        shakeIntensity *= 0.9; // 減衰
+        shakeIntensity *= Math.pow(0.9, timeScale); // 減衰
         if (shakeIntensity < 0.5) shakeIntensity = 0;
       }
 
@@ -294,7 +302,7 @@
 
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
-        p.update();
+        p.update(timeScale);
         p.draw(ctx);
         if (p.life <= 0) {
           particles.splice(i, 1);
@@ -324,7 +332,7 @@
         ctx.restore();
       }
       // アニメーション用スケールを減衰
-      if (comboScale > 1.0) comboScale += (1.0 - comboScale) * 0.1;
+      if (comboScale > 1.0) comboScale += (1.0 - comboScale) * (1.0 - Math.pow(0.9, timeScale));
 
       // WPM (Words Per Minute) の表示
       if (currentSettings.showWPM) {
@@ -348,7 +356,7 @@
       ctx.restore();
       requestAnimationFrame(animate);
     }
-    animate();
+    requestAnimationFrame(animate);
 
     let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const masterGain = audioCtx.createGain();
